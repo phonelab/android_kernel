@@ -153,6 +153,7 @@ static ssize_t copy_header_to_user(int ver, struct logger_entry *entry,
 		v1.tid      = entry->tid;
 		v1.sec      = entry->sec;
 		v1.nsec     = entry->nsec;
+        v1.lid      = entry->lid;
 		hdr         = &v1;
 		hdr_len     = sizeof(struct user_logger_entry_compat);
 	} else {
@@ -446,6 +447,8 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 			 unsigned long nr_segs, loff_t ppos)
 {
+    static uint64_t lid = 0;
+
 	struct logger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig = log->w_off;
 	struct logger_entry header;
@@ -458,6 +461,7 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	header.tid = current->pid;
 	header.sec = now.tv_sec;
 	header.nsec = now.tv_nsec;
+    header.lid = lid++;
 	header.euid = current_euid();
 	header.len = min_t(size_t, iocb->ki_left, LOGGER_ENTRY_MAX_PAYLOAD);
 	header.hdr_size = sizeof(struct logger_entry);
@@ -728,10 +732,10 @@ static struct logger_log VAR = { \
 	.size = SIZE, \
 };
 
-DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 4*1024*1024)
+DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 256*1024)
 DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
 DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 256*1024)
-DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 256*1024)
+DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 4*1024*1024)
 
 static struct logger_log *get_log_from_minor(int minor)
 {

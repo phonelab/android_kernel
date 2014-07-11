@@ -32,6 +32,7 @@ struct user_logger_entry_compat {
 	__s32		tid;	/* generating process's tid */
 	__s32		sec;	/* seconds since Epoch */
 	__s32		nsec;	/* nanoseconds */
+    __u64       lid;    /* logline id */
 	char		msg[0];	/* the entry's payload */
 };
 
@@ -47,6 +48,7 @@ struct logger_entry {
 	__s32		tid;		/* generating process's tid */
 	__s32		sec;		/* seconds since Epoch */
 	__s32		nsec;		/* nanoseconds */
+    __u64       lid;        /* logline id */
 	uid_t		euid;		/* effective UID of logger */
 	char		msg[0];		/* the entry's payload */
 };
