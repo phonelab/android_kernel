@@ -45,6 +45,7 @@ struct logger_log {
 	size_t			w_off;	/* current write head offset */
 	size_t			head;	/* new readers start here */
 	size_t			size;	/* size of the log */
+    uint64_t        lid;    /* monotonically increasing line id */
 };
 
 /*
@@ -447,8 +448,6 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 			 unsigned long nr_segs, loff_t ppos)
 {
-    static uint64_t lid = 0;
-
 	struct logger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig = log->w_off;
 	struct logger_entry header;
@@ -461,7 +460,6 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	header.tid = current->pid;
 	header.sec = now.tv_sec;
 	header.nsec = now.tv_nsec;
-    header.lid = lid++;
 	header.euid = current_euid();
 	header.len = min_t(size_t, iocb->ki_left, LOGGER_ENTRY_MAX_PAYLOAD);
 	header.hdr_size = sizeof(struct logger_entry);
@@ -471,6 +469,9 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		return 0;
 
 	mutex_lock(&log->mutex);
+
+    /* set line id in critical section */
+    header.lid = log->lid++;
 
 	/*
 	 * Fix up any readers, pulling them forward to the first readable
@@ -730,12 +731,13 @@ static struct logger_log VAR = { \
 	.w_off = 0, \
 	.head = 0, \
 	.size = SIZE, \
+    .lid = 0, \
 };
 
-DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 256*1024)
+DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 16*1024*1024)
 DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
 DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 256*1024)
-DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 4*1024*1024)
+DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 256*1024)
 
 static struct logger_log *get_log_from_minor(int minor)
 {
