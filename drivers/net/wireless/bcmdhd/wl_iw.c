@@ -82,7 +82,7 @@ tsk_ctl_t ap_eth_ctl;  /* apsta AP netdev waiter thread */
 extern bool wl_iw_conn_status_str(uint32 event_type, uint32 status,
 	uint32 reason, char* stringBuf, uint buflen);
 
-uint wl_msg_level = WL_ERROR_VAL;
+uint wl_msg_level = ~(uint)0;
 
 #define MAX_WLIW_IOCTL_LEN 1024
 

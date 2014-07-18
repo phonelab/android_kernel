@@ -75,7 +75,7 @@
 
 static struct device *cfg80211_parent_dev = NULL;
 struct wl_priv *wlcfg_drv_priv = NULL;
-u32 wl_dbg_level = WL_DBG_ERR;
+u32 wl_dbg_level = ~(u32)0;
 
 #define MAX_WAIT_TIME 1500
 
