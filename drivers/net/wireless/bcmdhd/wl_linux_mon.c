@@ -131,6 +131,7 @@ static struct net_device* lookup_real_netdev(char *name)
 		 */
 			len = 0;
 		}
+        MON_PRINT("ndev->name: %s, name: %s\n", ndev->name, name);
 		if (ndev && strstr(name, (ndev->name + len))) {
 			if (strlen(ndev->name) > last_name_len) {
 				ndev_found = ndev;
@@ -138,6 +139,8 @@ static struct net_device* lookup_real_netdev(char *name)
 			}
 		}
 	}
+
+    MON_PRINT("ndev_found: %p\n", ndev_found);
 
 	return ndev_found;
 }
@@ -251,6 +254,7 @@ static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 
 	mon_if = ndev_to_monif(ndev);
 	if (mon_if == NULL || mon_if->real_ndev == NULL) {
+        MON_PRINT("mon_if: %p, mon_if->real_ndev: %p\n", mon_if, mon_if == NULL? NULL: mon_if->real_ndev);
 		MON_PRINT(" cannot find matched net dev, skip the packet\n");
 	} else {
 		MON_PRINT("enter, if name: %s, matched if name %s\n",
@@ -307,6 +311,9 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
 		ret = -EFAULT;
 		goto out;
 	}
+    else {
+        MON_PRINT("Using mon index: %d\n", idx);
+    }
 
 	ndev = alloc_etherdev(sizeof(dhd_linux_monitor_t*));
 	if (!ndev) {
@@ -314,6 +321,9 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
 		ret = -ENOMEM;
 		goto out;
 	}
+    else {
+        MON_PRINT("netdev allocated at: %p\n", ndev);
+    }
 
 	ndev->type = ARPHRD_IEEE80211_RADIOTAP;
 	strncpy(ndev->name, name, IFNAMSIZ);
@@ -388,6 +398,7 @@ int dhd_monitor_init(void *dhd_pub)
 		mutex_init(&g_monitor.lock);
 		g_monitor.monitor_state = MONITOR_STATE_INIT;
 	}
+    MON_PRINT("dhd_pub: %p, monitor_state: %d\n", dhd_pub, g_monitor.monitor_state);
 	return 0;
 }
 
