@@ -311,9 +311,7 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
 		ret = -EFAULT;
 		goto out;
 	}
-    else {
-        MON_PRINT("Using mon index: %d\n", idx);
-    }
+    MON_PRINT("Using mon index: %d\n", idx);
 
 	ndev = alloc_etherdev(sizeof(dhd_linux_monitor_t*));
 	if (!ndev) {
