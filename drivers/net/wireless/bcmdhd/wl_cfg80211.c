@@ -8747,6 +8747,7 @@ static s32 wl_escan_handler(struct wl_priv *wl, bcm_struct_cfgdev *cfgdev,
 		ntoh32(e->event_type), ntoh32(e->status)));
 
 	ndev = cfgdev_to_wlc_ndev(cfgdev, wl);
+    WL_DBG(("cfgdev = %p, wl = %p, ndev = %p\n", cfgdev, wl, ndev));
 
 	mutex_lock(&wl->usr_sync);
 	/* P2P SCAN is coming from primary interface */
