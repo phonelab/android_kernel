@@ -3907,6 +3907,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 		}
 #else
 	(void)concurrent_mode;
+    (void)p2p_ea;
 #endif 
 	}
 
