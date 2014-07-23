@@ -1677,7 +1677,7 @@ typedef struct wlc_iov_trx_s {
 #define EPICTRL_COOKIE		0xABADCEDE
 #endif
 
-extern const char** WLC_CMD_NAME;
+extern const char* wlc_cmd_name(uint cmd);
 
 /* vx wlc ioctl's offset */
 #define CMN_IOCTL_OFF 0x180

@@ -37,6 +37,7 @@
 #include <wlioctl.h>
 #include <bcmutils.h>
 #include <dhd_dbg.h>
+#include <bcmendian.h>
 #include <dngl_stats.h>
 #include <dhd.h>
 
@@ -64,6 +65,8 @@ int dhd_monitor_uninit(void);
 
 typedef struct monitor_interface {
 	int radiotap_enabled;
+    bool started;
+    bool set_multicast;
 	struct net_device* real_ndev;	/* The real interface that the monitor is on */
 	struct net_device* mon_ndev;
 } monitor_interface;
@@ -150,7 +153,6 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan) {
 
     monitor_interface* mon = NULL;
     int i;
-    char radiotap_header[15];
 
 	MON_TRACE("Enter\n");
 
@@ -168,6 +170,11 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan) {
 
     MON_PRINT("Found monitor iface %s for %s\n", mon->mon_ndev->name, ndev->name);
 
+    if (!(mon->mon_ndev->flags & IFF_PROMISC)) {
+        MON_PRINT("%s not in monitor mode yet.\n", mon->mon_ndev->name);
+        return 0;
+    }
+
     skb = skb_copy(skb, GFP_KERNEL);
     if (skb == NULL) {
         MON_PRINT("Out of memory when copy skb.\n");
@@ -176,19 +183,7 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan) {
     skb->dev = mon->mon_ndev;
     skb->protocol = eth_type_trans(skb, skb->dev);
 
-    ((unsigned int*)radiotap_header)[0] = 0x000f0000; // it_version, it_pad, it_len
-    ((unsigned int*)radiotap_header)[1] = 0x2a;
-    radiotap_header[8] = 0x10;
-    ((unsigned short*)(radiotap_header+10))[0] = 2437; // frequency
-    ((unsigned short*)(radiotap_header+10))[1] = 0x0080; // G2_SPEC
-    radiotap_header[14] = 17;
-
-    // skb_pull(skb, ETH_HLEN);
-    // skb_push(skb, sizeof(radiotap_header));
-    // memcpy(skb->data, radiotap_header, sizeof(radiotap_header));
-
     netif_rx(skb);
-
     return 1;
 }
 
@@ -295,18 +290,75 @@ fail:
     return 0;
 }
 
+void dhd_mon_sysioc_hook() {
+    int i;
+    monitor_interface* mon_if;
+
+    for (i = 0; i < DHD_MAX_IFS; i++) {
+        if (g_monitor.mon_if[i].mon_ndev == NULL) {
+            continue;
+        }
+        mon_if = &(g_monitor.mon_if[i]);
+        if (mon_if->set_multicast) {
+            _dhd_mon_if_set_multicast_list(mon_if);
+            mon_if->set_multicast = FALSE;
+        }
+    }
+}
+
+static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if) {
+	uint32 mon;
+    int ifidx;
+	wl_ioctl_t ioc;
+	int ret;
+
+    MON_TRACE("Enter.\n");
+
+	mon = htol32((mon_if->mon_ndev->flags & IFF_PROMISC) ? TRUE : FALSE);
+
+	memset(&ioc, 0, sizeof(ioc));
+	ioc.cmd = WLC_SET_MONITOR;
+	ioc.buf = &mon;
+	ioc.len = sizeof(mon);
+	ioc.set = TRUE;
+
+    ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
+
+	ret = dhd_wl_ioctl(g_monitor.dhd_pub, ifidx, &ioc, ioc.buf, ioc.len);
+	if (ret < 0) {
+		DHD_ERROR(("%s: set monitor mode %d failed\n",
+		           dhd_ifname(g_monitor.dhd_pub, ifidx), ltoh32(mon)));
+	}
+
+    if (!mon_if->started && ltoh32(mon)) {
+        DHD_INFO(("======= Monitor Mode Begin ===========\n"));
+    }
+    else if (mon_if->started && !ltoh32(mon)) {
+        DHD_INFO(("======= Monitor Mode End   ===========\n"));
+    }
+    mon_if->started = mon;
+}
+
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 {
+
     monitor_interface* mon_if;
+    dhd_info_t* dhd;
+
+    MON_TRACE("Enter.\n");
 
     mon_if = ndev_to_monif(ndev);
     if (mon_if == NULL || mon_if->real_ndev == NULL) {
-        MON_PRINT("mon_if: %p, mon_if->real_ndev: %p\n", mon_if, mon_if == NULL? NULL: mon_if->real_ndev);
         MON_PRINT(" cannot find matched net dev, skip the packet\n");
-    } else {
-        MON_PRINT("enter, if name: %s, matched if name %s\n",
-                ndev->name, mon_if->real_ndev->name);
+        return;
     }
+    MON_PRINT("if name: %s, matched if name %s\n", ndev->name, mon_if->real_ndev->name);
+
+    mon_if->set_multicast = TRUE;
+
+    dhd = ((dhd_pub_t*)g_monitor.dhd_pub)->info;
+	ASSERT(dhd->thr_sysioc_ctl.thr_pid >= 0);
+    up(&(dhd->thr_sysioc_ctl.sema));
 }
 
 static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
@@ -370,7 +422,7 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
         MON_PRINT("netdev allocated at: %p\n", ndev);
     }
 
-    ndev->type = ARPHRD_IEEE80211_RADIOTAP;
+    ndev->type = ARPHRD_IEEE80211;
     strncpy(ndev->name, name, IFNAMSIZ);
     ndev->name[IFNAMSIZ - 1] = 0;
     ndev->netdev_ops = &dhd_mon_if_ops;
@@ -385,6 +437,8 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
     g_monitor.mon_if[idx].radiotap_enabled = TRUE;
     g_monitor.mon_if[idx].mon_ndev = ndev;
     g_monitor.mon_if[idx].real_ndev = lookup_real_netdev(name);
+    g_monitor.mon_if[idx].started = FALSE;
+    g_monitor.mon_if[idx].set_multicast = FALSE;
     dhd_mon = (dhd_linux_monitor_t **)netdev_priv(ndev);
     *dhd_mon = &g_monitor;
     g_monitor.monitor_state = MONITOR_STATE_INTERFACE_ADDED;

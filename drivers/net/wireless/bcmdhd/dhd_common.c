@@ -69,7 +69,7 @@
 #ifdef WLMEDIA_HTSF
 extern void htsf_update(struct dhd_info *dhd, void *data);
 #endif
-int dhd_msg_level = ~(int)0;
+int dhd_msg_level = (~(int)0 ^ DHD_BYTES_VAL ^ DHD_DATA_VAL ^ DHD_HDRS_VAL);
 
 
 #include <wl_iw.h>
