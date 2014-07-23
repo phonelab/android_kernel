@@ -279,6 +279,10 @@ dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len)
 	}
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
+    DHD_INFO(("%s: cmd = %d (%s)\n", __FUNCTION__, ioc->cmd, WLC_CMD_NAME[ioc->cmd]));
+    if (ioc->cmd == WLC_SET_VAR || ioc->cmd == WLC_GET_VAR) {
+        DHD_INFO(("%s: %s %s\n", __FUNCTION__, ioc->cmd == WLC_SET_VAR? "SET": "GET", (char*) ioc->buf));
+    }
 
 	ASSERT(len <= WLC_IOCTL_MAXLEN);
 
