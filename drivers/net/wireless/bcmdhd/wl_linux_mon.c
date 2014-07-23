@@ -145,136 +145,183 @@ static struct net_device* lookup_real_netdev(char *name)
 	return ndev_found;
 }
 
+
+int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan) {
+
+    monitor_interface* mon = NULL;
+    int i;
+    char radiotap_header[15];
+
+	MON_TRACE("Enter\n");
+
+    (void) chan;
+
+    for (i = 0; i < DHD_MAX_IFS; i++) {
+        if (g_monitor.mon_if[i].real_ndev == ndev) {
+            mon = &(g_monitor.mon_if[i]);
+        }
+    }
+    if (mon == NULL) {
+        MON_PRINT("No monitor iface for %s\n", ndev->name);
+        return 0;
+    }
+
+    MON_PRINT("Found monitor iface %s for %s\n", mon->mon_ndev->name, ndev->name);
+
+    skb = skb_copy(skb, GFP_KERNEL);
+    if (skb == NULL) {
+        MON_PRINT("Out of memory when copy skb.\n");
+    }
+
+    skb->dev = mon->mon_ndev;
+    skb->protocol = eth_type_trans(skb, skb->dev);
+
+    ((unsigned int*)radiotap_header)[0] = 0x000f0000; // it_version, it_pad, it_len
+    ((unsigned int*)radiotap_header)[1] = 0x2a;
+    radiotap_header[8] = 0x10;
+    ((unsigned short*)(radiotap_header+10))[0] = 2437; // frequency
+    ((unsigned short*)(radiotap_header+10))[1] = 0x0080; // G2_SPEC
+    radiotap_header[14] = 17;
+
+    // skb_pull(skb, ETH_HLEN);
+    // skb_push(skb, sizeof(radiotap_header));
+    // memcpy(skb->data, radiotap_header, sizeof(radiotap_header));
+
+    netif_rx(skb);
+
+    return 1;
+}
+
 static monitor_interface* ndev_to_monif(struct net_device *ndev)
 {
-	int i;
+    int i;
 
-	for (i = 0; i < DHD_MAX_IFS; i++) {
-		if (g_monitor.mon_if[i].mon_ndev == ndev)
-			return &g_monitor.mon_if[i];
-	}
+    for (i = 0; i < DHD_MAX_IFS; i++) {
+        if (g_monitor.mon_if[i].mon_ndev == ndev)
+            return &g_monitor.mon_if[i];
+    }
 
-	return NULL;
+    return NULL;
 }
 
 static int dhd_mon_if_open(struct net_device *ndev)
 {
-	int ret = 0;
+    int ret = 0;
 
-	MON_PRINT("enter\n");
-	return ret;
+    MON_PRINT("enter\n");
+    return ret;
 }
 
 static int dhd_mon_if_stop(struct net_device *ndev)
 {
-	int ret = 0;
+    int ret = 0;
 
-	MON_PRINT("enter\n");
-	return ret;
+    MON_PRINT("enter\n");
+    return ret;
 }
 
 static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
-	int ret = 0;
-	int rtap_len;
-	int qos_len = 0;
-	int dot11_hdr_len = 24;
-	int snap_len = 6;
-	unsigned char *pdata;
-	unsigned short frame_ctl;
-	unsigned char src_mac_addr[6];
-	unsigned char dst_mac_addr[6];
-	struct ieee80211_hdr *dot11_hdr;
-	struct ieee80211_radiotap_header *rtap_hdr;
-	monitor_interface* mon_if;
+    int ret = 0;
+    int rtap_len;
+    int qos_len = 0;
+    int dot11_hdr_len = 24;
+    int snap_len = 6;
+    unsigned char *pdata;
+    unsigned short frame_ctl;
+    unsigned char src_mac_addr[6];
+    unsigned char dst_mac_addr[6];
+    struct ieee80211_hdr *dot11_hdr;
+    struct ieee80211_radiotap_header *rtap_hdr;
+    monitor_interface* mon_if;
 
-	MON_PRINT("enter\n");
+    MON_PRINT("enter\n");
 
-	mon_if = ndev_to_monif(ndev);
-	if (mon_if == NULL || mon_if->real_ndev == NULL) {
-		MON_PRINT(" cannot find matched net dev, skip the packet\n");
-		goto fail;
-	}
+    mon_if = ndev_to_monif(ndev);
+    if (mon_if == NULL || mon_if->real_ndev == NULL) {
+        MON_PRINT(" cannot find matched net dev, skip the packet\n");
+        goto fail;
+    }
 
-	if (unlikely(skb->len < sizeof(struct ieee80211_radiotap_header)))
-		goto fail;
+    if (unlikely(skb->len < sizeof(struct ieee80211_radiotap_header)))
+        goto fail;
 
-	rtap_hdr = (struct ieee80211_radiotap_header *)skb->data;
-	if (unlikely(rtap_hdr->it_version))
-		goto fail;
+    rtap_hdr = (struct ieee80211_radiotap_header *)skb->data;
+    if (unlikely(rtap_hdr->it_version))
+        goto fail;
 
-	rtap_len = ieee80211_get_radiotap_len(skb->data);
-	if (unlikely(skb->len < rtap_len))
-		goto fail;
+    rtap_len = ieee80211_get_radiotap_len(skb->data);
+    if (unlikely(skb->len < rtap_len))
+        goto fail;
 
-	MON_PRINT("radiotap len (should be 14): %d\n", rtap_len);
+    MON_PRINT("radiotap len (should be 14): %d\n", rtap_len);
 
-	/* Skip the ratio tap header */
-	skb_pull(skb, rtap_len);
+    /* Skip the ratio tap header */
+    skb_pull(skb, rtap_len);
 
-	dot11_hdr = (struct ieee80211_hdr *)skb->data;
-	frame_ctl = le16_to_cpu(dot11_hdr->frame_control);
-	/* Check if the QoS bit is set */
-	if ((frame_ctl & IEEE80211_FCTL_FTYPE) == IEEE80211_FTYPE_DATA) {
-		/* Check if this ia a Wireless Distribution System (WDS) frame
-		 * which has 4 MAC addresses
-		 */
-		if (dot11_hdr->frame_control & 0x0080)
-			qos_len = 2;
-		if ((dot11_hdr->frame_control & 0x0300) == 0x0300)
-			dot11_hdr_len += 6;
+    dot11_hdr = (struct ieee80211_hdr *)skb->data;
+    frame_ctl = le16_to_cpu(dot11_hdr->frame_control);
+    /* Check if the QoS bit is set */
+    if ((frame_ctl & IEEE80211_FCTL_FTYPE) == IEEE80211_FTYPE_DATA) {
+        /* Check if this ia a Wireless Distribution System (WDS) frame
+         * which has 4 MAC addresses
+         */
+        if (dot11_hdr->frame_control & 0x0080)
+            qos_len = 2;
+        if ((dot11_hdr->frame_control & 0x0300) == 0x0300)
+            dot11_hdr_len += 6;
 
-		memcpy(dst_mac_addr, dot11_hdr->addr1, sizeof(dst_mac_addr));
-		memcpy(src_mac_addr, dot11_hdr->addr2, sizeof(src_mac_addr));
+        memcpy(dst_mac_addr, dot11_hdr->addr1, sizeof(dst_mac_addr));
+        memcpy(src_mac_addr, dot11_hdr->addr2, sizeof(src_mac_addr));
 
-		/* Skip the 802.11 header, QoS (if any) and SNAP, but leave spaces for
-		 * for two MAC addresses
-		 */
-		skb_pull(skb, dot11_hdr_len + qos_len + snap_len - sizeof(src_mac_addr) * 2);
-		pdata = (unsigned char*)skb->data;
-		memcpy(pdata, dst_mac_addr, sizeof(dst_mac_addr));
-		memcpy(pdata + sizeof(dst_mac_addr), src_mac_addr, sizeof(src_mac_addr));
-		PKTSETPRIO(skb, 0);
+        /* Skip the 802.11 header, QoS (if any) and SNAP, but leave spaces for
+         * for two MAC addresses
+         */
+        skb_pull(skb, dot11_hdr_len + qos_len + snap_len - sizeof(src_mac_addr) * 2);
+        pdata = (unsigned char*)skb->data;
+        memcpy(pdata, dst_mac_addr, sizeof(dst_mac_addr));
+        memcpy(pdata + sizeof(dst_mac_addr), src_mac_addr, sizeof(src_mac_addr));
+        PKTSETPRIO(skb, 0);
 
-		MON_PRINT("if name: %s, matched if name %s\n", ndev->name, mon_if->real_ndev->name);
+        MON_PRINT("if name: %s, matched if name %s\n", ndev->name, mon_if->real_ndev->name);
 
-		/* Use the real net device to transmit the packet */
-		ret = dhd_start_xmit(skb, mon_if->real_ndev);
+        /* Use the real net device to transmit the packet */
+        ret = dhd_start_xmit(skb, mon_if->real_ndev);
 
-		return ret;
-	}
+        return ret;
+    }
 fail:
-	dev_kfree_skb(skb);
-	return 0;
+    dev_kfree_skb(skb);
+    return 0;
 }
 
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 {
-	monitor_interface* mon_if;
+    monitor_interface* mon_if;
 
-	mon_if = ndev_to_monif(ndev);
-	if (mon_if == NULL || mon_if->real_ndev == NULL) {
+    mon_if = ndev_to_monif(ndev);
+    if (mon_if == NULL || mon_if->real_ndev == NULL) {
         MON_PRINT("mon_if: %p, mon_if->real_ndev: %p\n", mon_if, mon_if == NULL? NULL: mon_if->real_ndev);
-		MON_PRINT(" cannot find matched net dev, skip the packet\n");
-	} else {
-		MON_PRINT("enter, if name: %s, matched if name %s\n",
-		ndev->name, mon_if->real_ndev->name);
-	}
+        MON_PRINT(" cannot find matched net dev, skip the packet\n");
+    } else {
+        MON_PRINT("enter, if name: %s, matched if name %s\n",
+                ndev->name, mon_if->real_ndev->name);
+    }
 }
 
 static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
 {
-	int ret = 0;
-	monitor_interface* mon_if;
+    int ret = 0;
+    monitor_interface* mon_if;
 
-	mon_if = ndev_to_monif(ndev);
-	if (mon_if == NULL || mon_if->real_ndev == NULL) {
-		MON_PRINT(" cannot find matched net dev, skip the packet\n");
-	} else {
-		MON_PRINT("enter, if name: %s, matched if name %s\n",
-		ndev->name, mon_if->real_ndev->name);
-	}
-	return ret;
+    mon_if = ndev_to_monif(ndev);
+    if (mon_if == NULL || mon_if->real_ndev == NULL) {
+        MON_PRINT(" cannot find matched net dev, skip the packet\n");
+    } else {
+        MON_PRINT("enter, if name: %s, matched if name %s\n",
+                ndev->name, mon_if->real_ndev->name);
+    }
+    return ret;
 }
 
 /**
@@ -283,149 +330,149 @@ static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
 
 int dhd_add_monitor(char *name, struct net_device **new_ndev)
 {
-	int i;
-	int idx = -1;
-	int ret = 0;
-	struct net_device* ndev = NULL;
-	dhd_linux_monitor_t **dhd_mon;
+    int i;
+    int idx = -1;
+    int ret = 0;
+    struct net_device* ndev = NULL;
+    dhd_linux_monitor_t **dhd_mon;
 
-	mutex_lock(&g_monitor.lock);
+    mutex_lock(&g_monitor.lock);
 
-	MON_TRACE("enter, if name: %s\n", name);
-	if (!name || !new_ndev) {
-		MON_PRINT("invalid parameters\n");
-		ret = -EINVAL;
-		goto out;
-	}
+    MON_TRACE("enter, if name: %s\n", name);
+    if (!name || !new_ndev) {
+        MON_PRINT("invalid parameters\n");
+        ret = -EINVAL;
+        goto out;
+    }
 
-	/*
-	 * Find a vacancy
-	 */
-	for (i = 0; i < DHD_MAX_IFS; i++)
-		if (g_monitor.mon_if[i].mon_ndev == NULL) {
-			idx = i;
-			break;
-		}
-	if (idx == -1) {
-		MON_PRINT("exceeds maximum interfaces\n");
-		ret = -EFAULT;
-		goto out;
-	}
+    /*
+     * Find a vacancy
+     */
+    for (i = 0; i < DHD_MAX_IFS; i++)
+        if (g_monitor.mon_if[i].mon_ndev == NULL) {
+            idx = i;
+            break;
+        }
+    if (idx == -1) {
+        MON_PRINT("exceeds maximum interfaces\n");
+        ret = -EFAULT;
+        goto out;
+    }
     MON_PRINT("Using mon index: %d\n", idx);
 
-	ndev = alloc_etherdev(sizeof(dhd_linux_monitor_t*));
-	if (!ndev) {
-		MON_PRINT("failed to allocate memory\n");
-		ret = -ENOMEM;
-		goto out;
-	}
+    ndev = alloc_etherdev(sizeof(dhd_linux_monitor_t*));
+    if (!ndev) {
+        MON_PRINT("failed to allocate memory\n");
+        ret = -ENOMEM;
+        goto out;
+    }
     else {
         MON_PRINT("netdev allocated at: %p\n", ndev);
     }
 
-	ndev->type = ARPHRD_IEEE80211_RADIOTAP;
-	strncpy(ndev->name, name, IFNAMSIZ);
-	ndev->name[IFNAMSIZ - 1] = 0;
-	ndev->netdev_ops = &dhd_mon_if_ops;
+    ndev->type = ARPHRD_IEEE80211_RADIOTAP;
+    strncpy(ndev->name, name, IFNAMSIZ);
+    ndev->name[IFNAMSIZ - 1] = 0;
+    ndev->netdev_ops = &dhd_mon_if_ops;
 
-	ret = register_netdevice(ndev);
-	if (ret) {
-		MON_PRINT(" register_netdevice failed (%d)\n", ret);
-		goto out;
-	}
+    ret = register_netdevice(ndev);
+    if (ret) {
+        MON_PRINT(" register_netdevice failed (%d)\n", ret);
+        goto out;
+    }
 
-	*new_ndev = ndev;
-	g_monitor.mon_if[idx].radiotap_enabled = TRUE;
-	g_monitor.mon_if[idx].mon_ndev = ndev;
-	g_monitor.mon_if[idx].real_ndev = lookup_real_netdev(name);
-	dhd_mon = (dhd_linux_monitor_t **)netdev_priv(ndev);
-	*dhd_mon = &g_monitor;
-	g_monitor.monitor_state = MONITOR_STATE_INTERFACE_ADDED;
-	MON_PRINT("net device returned: 0x%p\n", ndev);
-	MON_PRINT("found a matched net device, name %s\n", g_monitor.mon_if[idx].real_ndev->name);
+    *new_ndev = ndev;
+    g_monitor.mon_if[idx].radiotap_enabled = TRUE;
+    g_monitor.mon_if[idx].mon_ndev = ndev;
+    g_monitor.mon_if[idx].real_ndev = lookup_real_netdev(name);
+    dhd_mon = (dhd_linux_monitor_t **)netdev_priv(ndev);
+    *dhd_mon = &g_monitor;
+    g_monitor.monitor_state = MONITOR_STATE_INTERFACE_ADDED;
+    MON_PRINT("net device returned: 0x%p\n", ndev);
+    MON_PRINT("found a matched net device, name %s\n", g_monitor.mon_if[idx].real_ndev->name);
 
 out:
-	if (ret && ndev)
-		free_netdev(ndev);
+    if (ret && ndev)
+        free_netdev(ndev);
 
-	mutex_unlock(&g_monitor.lock);
-	return ret;
+    mutex_unlock(&g_monitor.lock);
+    return ret;
 
 }
 
 int dhd_del_monitor(struct net_device *ndev)
 {
-	int i;
-	bool rollback_lock = false;
-	if (!ndev)
-		return -EINVAL;
-	mutex_lock(&g_monitor.lock);
-	for (i = 0; i < DHD_MAX_IFS; i++) {
-		if (g_monitor.mon_if[i].mon_ndev == ndev ||
-			g_monitor.mon_if[i].real_ndev == ndev) {
-			g_monitor.mon_if[i].real_ndev = NULL;
-			if (rtnl_is_locked()) {
-				rtnl_unlock();
-				rollback_lock = true;
-			}
-			unregister_netdev(g_monitor.mon_if[i].mon_ndev);
-			free_netdev(g_monitor.mon_if[i].mon_ndev);
-			g_monitor.mon_if[i].mon_ndev = NULL;
-			g_monitor.monitor_state = MONITOR_STATE_INTERFACE_DELETED;
-			break;
-		}
-	}
-	if (rollback_lock) {
-		rtnl_lock();
-		rollback_lock = false;
-	}
+    int i;
+    bool rollback_lock = false;
+    if (!ndev)
+        return -EINVAL;
+    mutex_lock(&g_monitor.lock);
+    for (i = 0; i < DHD_MAX_IFS; i++) {
+        if (g_monitor.mon_if[i].mon_ndev == ndev ||
+                g_monitor.mon_if[i].real_ndev == ndev) {
+            g_monitor.mon_if[i].real_ndev = NULL;
+            if (rtnl_is_locked()) {
+                rtnl_unlock();
+                rollback_lock = true;
+            }
+            unregister_netdev(g_monitor.mon_if[i].mon_ndev);
+            free_netdev(g_monitor.mon_if[i].mon_ndev);
+            g_monitor.mon_if[i].mon_ndev = NULL;
+            g_monitor.monitor_state = MONITOR_STATE_INTERFACE_DELETED;
+            break;
+        }
+    }
+    if (rollback_lock) {
+        rtnl_lock();
+        rollback_lock = false;
+    }
 
-	if (g_monitor.monitor_state !=
-	MONITOR_STATE_INTERFACE_DELETED)
-		MON_PRINT("interface not found in monitor IF array, is this a monitor IF? 0x%p\n",
-			ndev);
-	mutex_unlock(&g_monitor.lock);
+    if (g_monitor.monitor_state !=
+            MONITOR_STATE_INTERFACE_DELETED)
+        MON_PRINT("interface not found in monitor IF array, is this a monitor IF? 0x%p\n",
+                ndev);
+    mutex_unlock(&g_monitor.lock);
 
-	return 0;
+    return 0;
 }
 
 int dhd_monitor_init(void *dhd_pub)
 {
-	if (g_monitor.monitor_state == MONITOR_STATE_DEINIT) {
-		g_monitor.dhd_pub = dhd_pub;
-		mutex_init(&g_monitor.lock);
-		g_monitor.monitor_state = MONITOR_STATE_INIT;
-	}
+    if (g_monitor.monitor_state == MONITOR_STATE_DEINIT) {
+        g_monitor.dhd_pub = dhd_pub;
+        mutex_init(&g_monitor.lock);
+        g_monitor.monitor_state = MONITOR_STATE_INIT;
+    }
     MON_PRINT("dhd_pub: %p, monitor_state: %d\n", dhd_pub, g_monitor.monitor_state);
-	return 0;
+    return 0;
 }
 
 int dhd_monitor_uninit(void)
 {
-	int i;
-	struct net_device *ndev;
-	bool rollback_lock = false;
-	mutex_lock(&g_monitor.lock);
-	if (g_monitor.monitor_state != MONITOR_STATE_DEINIT) {
-		for (i = 0; i < DHD_MAX_IFS; i++) {
-			ndev = g_monitor.mon_if[i].mon_ndev;
-			if (ndev) {
-				if (rtnl_is_locked()) {
-					rtnl_unlock();
-					rollback_lock = true;
-				}
-				unregister_netdev(ndev);
-				free_netdev(ndev);
-				g_monitor.mon_if[i].real_ndev = NULL;
-				g_monitor.mon_if[i].mon_ndev = NULL;
-				if (rollback_lock) {
-					rtnl_lock();
-					rollback_lock = false;
-				}
-			}
-		}
-		g_monitor.monitor_state = MONITOR_STATE_DEINIT;
-	}
-	mutex_unlock(&g_monitor.lock);
-	return 0;
+    int i;
+    struct net_device *ndev;
+    bool rollback_lock = false;
+    mutex_lock(&g_monitor.lock);
+    if (g_monitor.monitor_state != MONITOR_STATE_DEINIT) {
+        for (i = 0; i < DHD_MAX_IFS; i++) {
+            ndev = g_monitor.mon_if[i].mon_ndev;
+            if (ndev) {
+                if (rtnl_is_locked()) {
+                    rtnl_unlock();
+                    rollback_lock = true;
+                }
+                unregister_netdev(ndev);
+                free_netdev(ndev);
+                g_monitor.mon_if[i].real_ndev = NULL;
+                g_monitor.mon_if[i].mon_ndev = NULL;
+                if (rollback_lock) {
+                    rtnl_lock();
+                    rollback_lock = false;
+                }
+            }
+        }
+        g_monitor.monitor_state = MONITOR_STATE_DEINIT;
+    }
+    mutex_unlock(&g_monitor.lock);
+    return 0;
 }

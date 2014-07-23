@@ -569,6 +569,9 @@ static int dhd_toe_set(dhd_info_t *dhd, int idx, uint32 toe_ol);
 static int dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata,
                              wl_event_msg_t *event_ptr, void **data_ptr);
 
+/* monitor mode */
+extern int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) && (LINUX_VERSION_CODE <= \
 	KERNEL_VERSION(2, 6, 39)) && defined(CONFIG_PM_SLEEP)
 static int dhd_sleep_pm_callback(struct notifier_block *nfb, unsigned long action, void *ignored)
@@ -1045,6 +1048,8 @@ _dhd_set_multicast_list(dhd_info_t *dhd, int ifidx)
 	uint buflen;
 	int ret;
 
+    DHD_TRACE(("%s: Enter.\n", __FUNCTION__));
+
 			ASSERT(dhd && dhd->iflist[ifidx]);
 			dev = dhd->iflist[ifidx]->net;
 			if (!dev)
@@ -1064,6 +1069,7 @@ _dhd_set_multicast_list(dhd_info_t *dhd, int ifidx)
 
 			/* Determine initial value of allmulti flag */
 	allmulti = (dev->flags & IFF_ALLMULTI) ? TRUE : FALSE;
+    DHD_INFO(("%s: IFF_ALLMULIT = %d\n", __FUNCTION__, allmulti));
 
 	/* Send down the multicast list first. */
 
@@ -1159,6 +1165,7 @@ _dhd_set_multicast_list(dhd_info_t *dhd, int ifidx)
 	/* Finally, pick up the PROMISC flag as well, like the NIC driver does */
 
 	allmulti = (dev->flags & IFF_PROMISC) ? TRUE : FALSE;
+    DHD_INFO(("%s: IFF_PROMISC = %d\n", __FUNCTION__, allmulti));
 
 	allmulti = htol32(allmulti);
 
@@ -1472,6 +1479,8 @@ dhd_set_multicast_list(struct net_device *dev)
 {
 	dhd_info_t *dhd = *(dhd_info_t **)netdev_priv(dev);
 	int ifidx;
+
+    DHD_TRACE(("%s: Enter.\n", __FUNCTION__));
 
 	ifidx = dhd_net2idx(dhd, dev);
 	if (ifidx == DHD_BAD_IF)
@@ -1896,6 +1905,11 @@ dhd_rx_frame(dhd_pub_t *dhdp, int ifidx, void *pktbuf, int numpkt, uint8 chan)
 		ifp = dhd->iflist[ifidx];
 		if (ifp == NULL)
 			ifp = dhd->iflist[0];
+
+        if (monitor_rx_frame(ifp->net, skb, chan)) {
+			PKTFREE(dhdp->osh, pktbuf, TRUE);
+			continue;
+        }
 
 		ASSERT(ifp);
 		skb->dev = ifp->net;
