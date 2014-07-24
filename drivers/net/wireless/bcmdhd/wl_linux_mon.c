@@ -256,37 +256,40 @@ fail:
 
 static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if)
 {
-	uint32 mon;
     int ifidx;
-	wl_ioctl_t ioc;
 	int ret;
+    uint mon, scansuppress;
 
     MON_TRACE("Enter.\n");
+
+    ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
 
 	mon = htol32((mon_if->mon_ndev->flags & IFF_PROMISC) ? TRUE : FALSE);
     MON_PRINT("IFF_PROMISC = %d\n", mon);
 
-	memset(&ioc, 0, sizeof(ioc));
-	ioc.cmd = WLC_SET_MONITOR;
-	ioc.buf = &mon;
-	ioc.len = sizeof(mon);
-	ioc.set = TRUE;
 
-    ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
-
-	ret = dhd_wl_ioctl(g_monitor.dhd_pub, ifidx, &ioc, ioc.buf, ioc.len);
+	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_MONITOR, &mon, sizeof(mon), TRUE, ifidx);
 	if (ret < 0) {
-		DHD_ERROR(("%s: set monitor mode %d failed\n",
-		           dhd_ifname(g_monitor.dhd_pub, ifidx), ltoh32(mon)));
+		MON_PRINT("Set monitor mode (%d) failed\n", ltoh32(mon));
+        return;
 	}
 
     if (!mon_if->started && ltoh32(mon)) {
-        DHD_INFO(("======= Monitor Mode Begin ===========\n"));
+        MON_PRINT("======= Monitor Mode Begin ===========\n");
+        scansuppress = htol32(TRUE);
+        netif_stop_queue(mon_if->real_ndev);
     }
     else if (mon_if->started && !ltoh32(mon)) {
-        DHD_INFO(("======= Monitor Mode End   ===========\n"));
+        MON_PRINT("======= Monitor Mode End   ===========\n");
+        scansuppress = htol32(FALSE);
+        netif_wake_queue(mon_if->real_ndev);
     }
     mon_if->started = ltoh32(mon);
+
+    ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_SCANSUPPRESS, &scansuppress, sizeof(scansuppress), TRUE, ifidx);
+    if (ret < 0) {
+        MON_PRINT("Set scansuppress (%d) failed.\n", ltoh32(scansuppress));
+    }
 }
 
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
@@ -489,8 +492,6 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan)
     if (!(mon->mon_ndev->flags & IFF_PROMISC)) {
         return 0;
     }
-
-    MON_TRACE("Enter.\n");
 
     skb = skb_copy(skb, GFP_KERNEL);
     if (skb == NULL) {
