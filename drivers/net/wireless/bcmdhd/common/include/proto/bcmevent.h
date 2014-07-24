@@ -240,6 +240,7 @@ typedef struct {
 
 extern const bcmevent_name_t	bcmevent_names[];
 extern const int		bcmevent_names_size;
+extern const char* bcmevent_name(uint event);
 
 /* Event status codes */
 #define WLC_E_STATUS_SUCCESS		0	/* operation was successful */
@@ -258,6 +259,8 @@ extern const int		bcmevent_names_size;
 #define WLC_E_STATUS_NOCHANS		13	/* no allowable channels to scan */
 #define WLC_E_STATUS_CS_ABORT		15	/* abort channel select */
 #define WLC_E_STATUS_ERROR		16	/* request failed due to error */
+
+extern const char* bcmstatus_name(uint status);
 
 /* roam reason codes */
 #define WLC_E_REASON_INITIAL_ASSOC	0	/* initial assoc */

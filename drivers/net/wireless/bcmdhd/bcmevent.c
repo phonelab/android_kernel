@@ -156,3 +156,52 @@ const bcmevent_name_t bcmevent_names[] = {
 };
 
 const int bcmevent_names_size = ARRAYSIZE(bcmevent_names);
+
+const char* bcmevent_name(uint event) {
+    int i;
+    for (i = 0; i < bcmevent_names_size; i++) {
+        if (bcmevent_names[i].event == event) {
+            return bcmevent_names[i].name;
+        }
+    }
+    return "UNKNOWN";
+}
+
+const char* bcmstatus_name(uint status) {
+    switch (status) {
+        case WLC_E_STATUS_SUCCESS:
+            return "SUCCESS";
+        case WLC_E_STATUS_FAIL:
+            return "FAIL";
+        case WLC_E_STATUS_TIMEOUT:
+            return "TIMEOUT";
+        case WLC_E_STATUS_NO_NETWORKS:
+            return "NO_NETWORKS";
+        case WLC_E_STATUS_ABORT:
+            return "ABORT";
+        case WLC_E_STATUS_NO_ACK:
+            return "NO_ACK";
+        case WLC_E_STATUS_UNSOLICITED:
+            return "UNSOLICITED";
+        case WLC_E_STATUS_ATTEMPT:
+            return "ATTEMPT";
+        case WLC_E_STATUS_PARTIAL:
+            return "PARTIAL";
+        case WLC_E_STATUS_NEWSCAN:
+            return "NEWSCAN";
+        case WLC_E_STATUS_NEWASSOC:
+            return "NEWASSOC";
+        case WLC_E_STATUS_11HQUIET:
+            return "11HQUIET";
+        case WLC_E_STATUS_SUPPRESS:
+            return "SUPPRESS";
+        case WLC_E_STATUS_NOCHANS:
+            return "NOCHANS";
+        case WLC_E_STATUS_CS_ABORT:
+            return "CS_ABORT";
+        case WLC_E_STATUS_ERROR:
+            return "ERROR";
+        default :
+            return "UNKNOWN";
+    }
+}
