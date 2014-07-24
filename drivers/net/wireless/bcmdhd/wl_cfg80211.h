@@ -785,7 +785,7 @@ wl_get_netinfo_by_netdev(struct wl_priv *wl, struct net_device *ndev)
 #define ndev_to_wlc_ndev(ndev, wl)	((ndev == wl->p2p_net) ? \
 	wl_to_prmry_ndev(wl) : ndev)
 #else
-#define ndev_to_wlc_ndev(ndev, wl)	(ndev)
+#define ndev_to_wlc_ndev(ndev, wl)	(wl_to_prmry_ndev(wl))
 #endif /* WL_ENABLE_P2P_IF */
 
 #if defined(WL_CFG80211_P2P_DEV_IF)

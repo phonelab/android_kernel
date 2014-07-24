@@ -5150,7 +5150,10 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 
     WL_TRACE(("Enter. chan = %p, type = %d\n", chan, channel_type));
 
+    WL_DBG(("dev = %p, wl = %p\n", dev, wl));
 	dev = ndev_to_wlc_ndev(dev, wl);
+    WL_DBG(("dev = %p\n", dev));
+
 	_chan = ieee80211_frequency_to_channel(chan->center_freq);
 	WL_ERR(("netdev_ifidx(%d), chan_type(%d) target channel(%d) \n",
 		dev->ifindex, channel_type, _chan));
