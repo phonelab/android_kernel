@@ -79,6 +79,29 @@ typedef struct dhd_linux_monitor {
 	tsk_ctl_t	thr_sysioc_ctl;
 } dhd_linux_monitor_t;
 
+typedef struct dhd_monitor_header {
+    struct ieee80211_radiotap_header radiotap_hdr;
+
+    /* radiotap flags */
+    u8 radiotap_flags;
+    u8 padding_for_radiotap_flags;
+
+    /* channel info */
+    __le16 channel_mhz;
+    __le16 channel_flags;
+
+    /* RSI in dBm */
+    s8 rssi;
+    s8 padding_for_rssi;
+} __attribute__ ((packed)) dhd_monitor_header_t;
+
+const struct ieee80211_radiotap_header RADIOTAP_HEADER_INITIALIZER = {
+    PKTHDR_RADIOTAP_VERSION, /* it_version */
+    0, /* it_pad */
+    sizeof(dhd_monitor_header_t), /* it_len */
+    (1 << IEEE80211_RADIOTAP_FLAGS) | (1 << IEEE80211_RADIOTAP_CHANNEL) | (1 << IEEE80211_RADIOTAP_DBM_ANTSIGNAL) /* it_present */
+};
+
 static dhd_linux_monitor_t g_monitor;
 
 static struct net_device* lookup_real_netdev(char *name);
@@ -404,7 +427,7 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
         MON_PRINT("netdev allocated at: %p\n", ndev);
     }
 
-    ndev->type = ARPHRD_IEEE80211;
+    ndev->type = ARPHRD_IEEE80211_RADIOTAP;
     strncpy(ndev->name, name, IFNAMSIZ);
     ndev->name[IFNAMSIZ - 1] = 0;
     ndev->netdev_ops = &dhd_mon_if_ops;
@@ -473,11 +496,14 @@ int dhd_del_monitor(struct net_device *ndev)
 }
 
 
-int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan)
+int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
 {
 
     monitor_interface* mon = NULL;
     int i;
+    struct sk_buff* skb;
+
+    dhd_monitor_header_t hdr;
 
     (void) chan;
 
@@ -493,13 +519,26 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan)
         return 0;
     }
 
-    skb = skb_copy(skb, GFP_KERNEL);
+    skb = skb_copy(_skb, GFP_KERNEL);
     if (skb == NULL) {
         MON_PRINT("Out of memory when copy skb.\n");
     }
 
-    skb->dev = mon->mon_ndev;
-    skb->protocol = eth_type_trans(skb, skb->dev);
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.radiotap_hdr = RADIOTAP_HEADER_INITIALIZER;
+
+    hdr.radiotap_flags = IEEE80211_RADIOTAP_F_FCS;
+
+    hdr.channel_mhz = 2412;
+    hdr.channel_flags = IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_OFDM;
+
+    hdr.rssi = -60;
+
+    skb_push(skb, sizeof(hdr));
+    memcpy(skb->data, &hdr, sizeof(hdr));
+
+    /* eth_type_trans will call skb_pull, so put this line at last. */
+    skb->protocol = eth_type_trans(skb, mon->mon_ndev);
 
     netif_rx(skb);
     return 1;
