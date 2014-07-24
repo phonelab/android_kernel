@@ -547,7 +547,6 @@ static void dhd_dump_htsfhisto(histo_t *his, char *s);
 int dhd_monitor_init(void *dhd_pub);
 int dhd_monitor_uninit(void);
 extern int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan);
-extern void dhd_mon_sysioc_hook(void);
 
 
 
@@ -1440,9 +1439,6 @@ _dhd_sysioc_thread(void *data)
 				}
 			}
 		}
-
-        /* hook for dhd mon */
-        dhd_mon_sysioc_hook();
 
 		DHD_OS_WAKE_UNLOCK(&dhd->pub);
 		dhd_net_if_unlock_local(dhd);

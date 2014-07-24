@@ -60,7 +60,7 @@ int dhd_monitor_uninit(void);
 #ifndef DHD_MAX_IFS
 #define DHD_MAX_IFS 16
 #endif
-#define MON_PRINT(format, ...) printk("DHD-MON: %s " format, __func__, ##__VA_ARGS__)
+#define MON_PRINT(format, ...) printk("DHD-MON: %s: " format, __func__, ##__VA_ARGS__)
 #define MON_TRACE MON_PRINT
 
 typedef struct monitor_interface {
@@ -76,6 +76,7 @@ typedef struct dhd_linux_monitor {
 	monitor_states_t monitor_state;
 	monitor_interface mon_if[DHD_MAX_IFS];
 	struct mutex lock;		/* lock to protect mon_if */
+	tsk_ctl_t	thr_sysioc_ctl;
 } dhd_linux_monitor_t;
 
 static dhd_linux_monitor_t g_monitor;
@@ -87,6 +88,8 @@ static int dhd_mon_if_stop(struct net_device *ndev);
 static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *ndev);
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev);
 static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr);
+static int _dhd_mon_sysioc_thread(void* data);
+static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if);
 
 static const struct net_device_ops dhd_mon_if_ops = {
 	.ndo_open		= dhd_mon_if_open,
@@ -146,45 +149,6 @@ static struct net_device* lookup_real_netdev(char *name)
     MON_PRINT("ndev_found: %p\n", ndev_found);
 
 	return ndev_found;
-}
-
-
-int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan) {
-
-    monitor_interface* mon = NULL;
-    int i;
-
-	MON_TRACE("Enter\n");
-
-    (void) chan;
-
-    for (i = 0; i < DHD_MAX_IFS; i++) {
-        if (g_monitor.mon_if[i].real_ndev == ndev) {
-            mon = &(g_monitor.mon_if[i]);
-        }
-    }
-    if (mon == NULL) {
-        MON_PRINT("No monitor iface for %s\n", ndev->name);
-        return 0;
-    }
-
-    MON_PRINT("Found monitor iface %s for %s\n", mon->mon_ndev->name, ndev->name);
-
-    if (!(mon->mon_ndev->flags & IFF_PROMISC)) {
-        MON_PRINT("%s not in monitor mode yet.\n", mon->mon_ndev->name);
-        return 0;
-    }
-
-    skb = skb_copy(skb, GFP_KERNEL);
-    if (skb == NULL) {
-        MON_PRINT("Out of memory when copy skb.\n");
-    }
-
-    skb->dev = mon->mon_ndev;
-    skb->protocol = eth_type_trans(skb, skb->dev);
-
-    netif_rx(skb);
-    return 1;
 }
 
 static monitor_interface* ndev_to_monif(struct net_device *ndev)
@@ -290,23 +254,8 @@ fail:
     return 0;
 }
 
-void dhd_mon_sysioc_hook() {
-    int i;
-    monitor_interface* mon_if;
-
-    for (i = 0; i < DHD_MAX_IFS; i++) {
-        if (g_monitor.mon_if[i].mon_ndev == NULL) {
-            continue;
-        }
-        mon_if = &(g_monitor.mon_if[i]);
-        if (mon_if->set_multicast) {
-            _dhd_mon_if_set_multicast_list(mon_if);
-            mon_if->set_multicast = FALSE;
-        }
-    }
-}
-
-static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if) {
+static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if)
+{
 	uint32 mon;
     int ifidx;
 	wl_ioctl_t ioc;
@@ -315,6 +264,7 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if) {
     MON_TRACE("Enter.\n");
 
 	mon = htol32((mon_if->mon_ndev->flags & IFF_PROMISC) ? TRUE : FALSE);
+    MON_PRINT("IFF_PROMISC = %d\n", mon);
 
 	memset(&ioc, 0, sizeof(ioc));
 	ioc.cmd = WLC_SET_MONITOR;
@@ -336,14 +286,12 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if) {
     else if (mon_if->started && !ltoh32(mon)) {
         DHD_INFO(("======= Monitor Mode End   ===========\n"));
     }
-    mon_if->started = mon;
+    mon_if->started = ltoh32(mon);
 }
 
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 {
-
     monitor_interface* mon_if;
-    dhd_info_t* dhd;
 
     MON_TRACE("Enter.\n");
 
@@ -356,9 +304,8 @@ static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 
     mon_if->set_multicast = TRUE;
 
-    dhd = ((dhd_pub_t*)g_monitor.dhd_pub)->info;
-	ASSERT(dhd->thr_sysioc_ctl.thr_pid >= 0);
-    up(&(dhd->thr_sysioc_ctl.sema));
+	ASSERT(g_monitor.thr_sysioc_ctl.thr_pid >= 0);
+    up(&(g_monitor.thr_sysioc_ctl.sema));
 }
 
 static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
@@ -374,6 +321,38 @@ static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
                 ndev->name, mon_if->real_ndev->name);
     }
     return ret;
+}
+
+static int _dhd_mon_sysioc_thread(void* data)
+{
+	tsk_ctl_t *tsk = (tsk_ctl_t *)data;
+	int i;
+    monitor_interface* mon_if;
+
+    MON_TRACE("Started.\n");
+
+    while (down_interruptible(&tsk->sema) == 0) {
+        SMP_RD_BARRIER_DEPENDS();
+        if (tsk->terminated) {
+            break;
+        }
+
+        for (i = 0; i < DHD_MAX_IFS; i++) {
+            if (g_monitor.mon_if[i].mon_ndev == NULL) {
+                continue;
+            }
+            mon_if = &(g_monitor.mon_if[i]);
+            MON_PRINT("%s\n", mon_if->mon_ndev->name);
+
+            if (mon_if->set_multicast) {
+                _dhd_mon_if_set_multicast_list(mon_if);
+                mon_if->set_multicast = FALSE;
+            }
+        }
+    }
+
+	MON_TRACE("Stopped\n");
+	complete_and_exit(&tsk->completed, 0);
 }
 
 /**
@@ -490,6 +469,41 @@ int dhd_del_monitor(struct net_device *ndev)
     return 0;
 }
 
+
+int monitor_rx_frame(struct net_device* ndev, struct sk_buff* skb, uint8 chan)
+{
+
+    monitor_interface* mon = NULL;
+    int i;
+
+    (void) chan;
+
+    for (i = 0; i < DHD_MAX_IFS; i++) {
+        if (g_monitor.mon_if[i].real_ndev == ndev) {
+            mon = &(g_monitor.mon_if[i]);
+        }
+    }
+    if (mon == NULL) {
+        return 0;
+    }
+    if (!(mon->mon_ndev->flags & IFF_PROMISC)) {
+        return 0;
+    }
+
+    MON_TRACE("Enter.\n");
+
+    skb = skb_copy(skb, GFP_KERNEL);
+    if (skb == NULL) {
+        MON_PRINT("Out of memory when copy skb.\n");
+    }
+
+    skb->dev = mon->mon_ndev;
+    skb->protocol = eth_type_trans(skb, skb->dev);
+
+    netif_rx(skb);
+    return 1;
+}
+
 int dhd_monitor_init(void *dhd_pub)
 {
     if (g_monitor.monitor_state == MONITOR_STATE_DEINIT) {
@@ -498,6 +512,8 @@ int dhd_monitor_init(void *dhd_pub)
         g_monitor.monitor_state = MONITOR_STATE_INIT;
     }
     MON_PRINT("dhd_pub: %p, monitor_state: %d\n", dhd_pub, g_monitor.monitor_state);
+
+    PROC_START(_dhd_mon_sysioc_thread, &g_monitor, &g_monitor.thr_sysioc_ctl, 0, "dhd_mon_sysioc");
     return 0;
 }
 
@@ -528,5 +544,10 @@ int dhd_monitor_uninit(void)
         g_monitor.monitor_state = MONITOR_STATE_DEINIT;
     }
     mutex_unlock(&g_monitor.lock);
+
+    if (g_monitor.thr_sysioc_ctl.thr_pid >= 0) {
+        PROC_STOP(&g_monitor.thr_sysioc_ctl);
+    }
+
     return 0;
 }
