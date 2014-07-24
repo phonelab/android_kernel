@@ -5148,11 +5148,14 @@ wl_cfg80211_set_channel(struct wiphy *wiphy, struct net_device *dev,
 	} param = {0, 0};
 	struct wl_priv *wl = wiphy_priv(wiphy);
 
+    WL_TRACE(("Enter. chan = %p, type = %d\n", chan, channel_type));
+
 	dev = ndev_to_wlc_ndev(dev, wl);
 	_chan = ieee80211_frequency_to_channel(chan->center_freq);
 	WL_ERR(("netdev_ifidx(%d), chan_type(%d) target channel(%d) \n",
 		dev->ifindex, channel_type, _chan));
 
+    WL_INFO(("center_freq = %d, chan = %d, band = %d\n", chan->center_freq, _chan, chan->band));
 
 	if (chan->band == IEEE80211_BAND_5GHZ) {
 		param.band = WLC_BAND_5G;
