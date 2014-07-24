@@ -8746,8 +8746,8 @@ static s32 wl_escan_handler(struct wl_priv *wl, bcm_struct_cfgdev *cfgdev,
 	u32 i;
 	u8 *p2p_dev_addr = NULL;
 
-	WL_DBG((" enter event type : %d, status : %d \n",
-		ntoh32(e->event_type), ntoh32(e->status)));
+	WL_DBG((" enter event type : %d (%s), status : %d (%s) \n",
+		ntoh32(e->event_type), bcmevent_name(ntoh32(e->event_type)), ntoh32(e->status), bcmstatus_name(ntoh32(e->status))));
 
 	ndev = cfgdev_to_wlc_ndev(cfgdev, wl);
     WL_DBG(("cfgdev = %p, wl = %p, ndev = %p\n", cfgdev, wl, ndev));
@@ -9565,7 +9565,7 @@ static s32 wl_event_handler(void *data)
 		if (tsk->terminated)
 			break;
 		while ((e = wl_deq_event(wl))) {
-			WL_DBG(("event type (%d), if idx: %d\n", e->etype, e->emsg.ifidx));
+			WL_DBG(("event type: %d (%s), if idx: %d\n", e->etype, bcmevent_name(e->etype), e->emsg.ifidx));
 			/* All P2P device address related events comes on primary interface since
 			 * there is no corresponding bsscfg for P2P interface. Map it to p2p0
 			 * interface.
