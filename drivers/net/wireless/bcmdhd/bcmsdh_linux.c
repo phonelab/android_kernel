@@ -81,7 +81,7 @@ struct device *pm_dev;
 static bcmsdh_driver_t drvinfo = {NULL, NULL};
 
 /* debugging macros */
-#define SDLX_MSG(x) do { printf x; } while (0)
+#define SDLX_MSG(x)
 
 /**
  * Checks to see if vendor and device IDs match a supported SDIO Host Controller.
