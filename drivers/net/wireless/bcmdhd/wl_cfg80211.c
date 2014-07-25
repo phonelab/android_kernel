@@ -9599,7 +9599,7 @@ static s32 wl_event_handler(void *data)
 			if (e->etype < WLC_E_LAST && wl->evt_handler[e->etype]) {
 				wl->evt_handler[e->etype] (wl, cfgdev, &e->emsg, e->edata);
 			} else {
-				WL_DBG(("Unknown Event (%d): ignoring\n", e->etype));
+				WL_DBG(("Unknown Event %d (%s): ignoring\n", e->etype, bcmevent_name(e->etype)));
 			}
 			wl_put_event(e);
 		}
