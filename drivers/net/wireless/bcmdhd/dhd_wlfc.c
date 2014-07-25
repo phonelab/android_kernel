@@ -2187,6 +2187,8 @@ dhd_wlfc_parse_header_info(dhd_pub_t *dhd, void* pktbuf, int tlv_hdr_len, uchar 
 	athost_wl_status_info_t* wlfc = (athost_wl_status_info_t*)
 		dhd->wlfc_state;
 	tmpbuf = (uint8*)PKTDATA(dhd->osh, pktbuf);
+
+    DHD_TRACE(("%s: Enter.\n", __FUNCTION__));
 	if (remainder) {
 		while ((processed < (WLFC_MAX_PENDING_DATALEN * 2)) && (remainder > 0)) {
 			type = tmpbuf[processed];
@@ -2261,6 +2263,8 @@ dhd_wlfc_init(dhd_pub_t *dhd)
 		WLFC_FLAGS_HOST_RXRERODER_ACTIVE : 0;
 		/* WLFC_FLAGS_HOST_PROPTXSTATUS_ACTIVE | WLFC_FLAGS_HOST_RXRERODER_ACTIVE : 0; */
 
+
+    DHD_TRACE(("%s: Enter.\n", __FUNCTION__));
 
 	/*
 	try to enable/disable signaling by sending "tlv" iovar. if that fails,

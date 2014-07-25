@@ -5299,6 +5299,8 @@ dhd_wl_host_event(dhd_info_t *dhd, int *ifidx, void *pktdata,
 	int bcmerror = 0;
 	ASSERT(dhd != NULL);
 
+    DHD_INFO(("%s: event = %d (%s)\n", __FUNCTION__, bcmevent_name(ntoh32(event->event_type))));
+
 	bcmerror = wl_host_event(&dhd->pub, ifidx, pktdata, event, data);
 	if (bcmerror != BCME_OK)
 		return (bcmerror);

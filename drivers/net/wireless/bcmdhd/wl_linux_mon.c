@@ -33,6 +33,7 @@
 #include <linux/ieee80211.h>
 #include <linux/rtnetlink.h>
 #include <net/ieee80211_radiotap.h>
+#include <net/cfg80211.h>
 
 #include <wlioctl.h>
 #include <bcmutils.h>
@@ -63,18 +64,23 @@ int dhd_monitor_uninit(void);
 #define MON_PRINT(format, ...) printk("DHD-MON: %s: " format, __func__, ##__VA_ARGS__)
 #define MON_TRACE MON_PRINT
 
+#define UPDATE_FREQ_MODULO  16
+
 typedef struct monitor_interface {
 	int radiotap_enabled;
     bool started;
     bool set_multicast;
+    bool update_freq;
+    int pkt_cnt;
+    int freq;
 	struct net_device* real_ndev;	/* The real interface that the monitor is on */
 	struct net_device* mon_ndev;
-} monitor_interface;
+} monitor_interface_t;
 
 typedef struct dhd_linux_monitor {
 	void *dhd_pub;
 	monitor_states_t monitor_state;
-	monitor_interface mon_if[DHD_MAX_IFS];
+	monitor_interface_t mon_if[DHD_MAX_IFS];
 	struct mutex lock;		/* lock to protect mon_if */
 	tsk_ctl_t	thr_sysioc_ctl;
 } dhd_linux_monitor_t;
@@ -105,14 +111,15 @@ const struct ieee80211_radiotap_header RADIOTAP_HEADER_INITIALIZER = {
 static dhd_linux_monitor_t g_monitor;
 
 static struct net_device* lookup_real_netdev(char *name);
-static monitor_interface* ndev_to_monif(struct net_device *ndev);
+static monitor_interface_t* ndev_to_monif(struct net_device *ndev);
 static int dhd_mon_if_open(struct net_device *ndev);
 static int dhd_mon_if_stop(struct net_device *ndev);
 static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *ndev);
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev);
 static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr);
 static int _dhd_mon_sysioc_thread(void* data);
-static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if);
+static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if);
+static int get_freq(monitor_interface_t* mon_if);
 
 static const struct net_device_ops dhd_mon_if_ops = {
 	.ndo_open		= dhd_mon_if_open,
@@ -174,7 +181,7 @@ static struct net_device* lookup_real_netdev(char *name)
 	return ndev_found;
 }
 
-static monitor_interface* ndev_to_monif(struct net_device *ndev)
+static monitor_interface_t* ndev_to_monif(struct net_device *ndev)
 {
     int i;
 
@@ -215,7 +222,7 @@ static int dhd_mon_if_subif_start_xmit(struct sk_buff *skb, struct net_device *n
     unsigned char dst_mac_addr[6];
     struct ieee80211_hdr *dot11_hdr;
     struct ieee80211_radiotap_header *rtap_hdr;
-    monitor_interface* mon_if;
+    monitor_interface_t* mon_if;
 
     MON_PRINT("enter\n");
 
@@ -277,7 +284,7 @@ fail:
     return 0;
 }
 
-static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if)
+static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
 {
     int ifidx;
 	int ret;
@@ -317,7 +324,7 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface* mon_if)
 
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 {
-    monitor_interface* mon_if;
+    monitor_interface_t* mon_if;
 
     MON_TRACE("Enter.\n");
 
@@ -337,7 +344,7 @@ static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
 {
     int ret = 0;
-    monitor_interface* mon_if;
+    monitor_interface_t* mon_if;
 
     mon_if = ndev_to_monif(ndev);
     if (mon_if == NULL || mon_if->real_ndev == NULL) {
@@ -353,7 +360,7 @@ static int _dhd_mon_sysioc_thread(void* data)
 {
 	tsk_ctl_t *tsk = (tsk_ctl_t *)data;
 	int i;
-    monitor_interface* mon_if;
+    monitor_interface_t* mon_if;
 
     MON_TRACE("Started.\n");
 
@@ -374,11 +381,41 @@ static int _dhd_mon_sysioc_thread(void* data)
                 _dhd_mon_if_set_multicast_list(mon_if);
                 mon_if->set_multicast = FALSE;
             }
+            if (mon_if->update_freq) {
+                mon_if->freq = get_freq(mon_if);
+                mon_if->update_freq = FALSE;
+                MON_PRINT("Current freq: %d\n", mon_if->freq);
+            }
         }
+
     }
 
 	MON_TRACE("Stopped\n");
 	complete_and_exit(&tsk->completed, 0);
+}
+
+
+static int get_freq(monitor_interface_t* mon_if)
+{
+	channel_info_t chan_info;
+    enum ieee80211_band band;
+    int ret, chan, freq, ifidx;
+
+    ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
+	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_GET_CHANNEL, &chan_info, sizeof(chan_info), FALSE, ifidx);
+
+    if (unlikely(ret)) {
+        MON_PRINT("Failed to get channel info.\n");
+        return -1;
+    }
+
+	chan = ltoh32(chan_info.hw_channel);
+    band = (chan <= CH_MAX_2G_CHANNEL) ? IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ;
+	freq = ieee80211_channel_to_frequency(chan, band);
+
+    MON_PRINT("chan = %d, band = %d, freq = %d\n", chan, band, freq);
+
+    return freq;
 }
 
 /**
@@ -439,11 +476,14 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
     }
 
     *new_ndev = ndev;
+    memset(&(g_monitor.mon_if[idx]), 0, sizeof(g_monitor.mon_if[idx]));
     g_monitor.mon_if[idx].radiotap_enabled = TRUE;
     g_monitor.mon_if[idx].mon_ndev = ndev;
     g_monitor.mon_if[idx].real_ndev = lookup_real_netdev(name);
     g_monitor.mon_if[idx].started = FALSE;
     g_monitor.mon_if[idx].set_multicast = FALSE;
+    g_monitor.mon_if[idx].update_freq = TRUE;
+    g_monitor.mon_if[idx].freq = 2412;
     dhd_mon = (dhd_linux_monitor_t **)netdev_priv(ndev);
     *dhd_mon = &g_monitor;
     g_monitor.monitor_state = MONITOR_STATE_INTERFACE_ADDED;
@@ -499,8 +539,8 @@ int dhd_del_monitor(struct net_device *ndev)
 int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
 {
 
-    monitor_interface* mon = NULL;
-    int i;
+    monitor_interface_t* mon_if = NULL;
+    int i, ifidx;
     struct sk_buff* skb;
 
     dhd_monitor_header_t hdr;
@@ -509,28 +549,38 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
 
     for (i = 0; i < DHD_MAX_IFS; i++) {
         if (g_monitor.mon_if[i].real_ndev == ndev) {
-            mon = &(g_monitor.mon_if[i]);
+            mon_if = &(g_monitor.mon_if[i]);
         }
     }
-    if (mon == NULL) {
+    if (mon_if == NULL) {
         return 0;
     }
-    if (!(mon->mon_ndev->flags & IFF_PROMISC)) {
+    if (!(mon_if->mon_ndev->flags & IFF_PROMISC)) {
         return 0;
     }
 
     skb = skb_copy(_skb, GFP_KERNEL);
-    if (skb == NULL) {
+    if (unlikely(skb == NULL)) {
         MON_PRINT("Out of memory when copy skb.\n");
+        return 0;
     }
+
+    mon_if->pkt_cnt++;
+
+    if (mon_if->pkt_cnt % UPDATE_FREQ_MODULO == 0) {
+        mon_if->update_freq = TRUE;
+        up(&(g_monitor.thr_sysioc_ctl.sema));
+    }
+
+    ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
 
     memset(&hdr, 0, sizeof(hdr));
     hdr.radiotap_hdr = RADIOTAP_HEADER_INITIALIZER;
 
     hdr.radiotap_flags = IEEE80211_RADIOTAP_F_FCS;
 
-    hdr.channel_mhz = 2412;
-    hdr.channel_flags = IEEE80211_CHAN_2GHZ | IEEE80211_CHAN_OFDM;
+    hdr.channel_mhz = mon_if->freq;
+    hdr.channel_flags = (hdr.channel_mhz < 5000? IEEE80211_CHAN_2GHZ: IEEE80211_CHAN_5GHZ);
 
     hdr.rssi = -60;
 
@@ -538,7 +588,7 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
     memcpy(skb->data, &hdr, sizeof(hdr));
 
     /* eth_type_trans will call skb_pull, so put this line at last. */
-    skb->protocol = eth_type_trans(skb, mon->mon_ndev);
+    skb->protocol = eth_type_trans(skb, mon_if->mon_ndev);
 
     netif_rx(skb);
     return 1;
