@@ -396,6 +396,7 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 	struct bdc_header *h;
 #endif
 	uint8 data_offset = 0;
+    int i;
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -439,6 +440,13 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 		          dhd_ifname(dhd, *ifidx), h->flags));
 		PKTSETSUMGOOD(pktbuf, TRUE);
 	}
+
+    DHD_INFO(("%s: Packet\n", __FUNCTION__));
+    for (i = 0; i < 16; i++) {
+        DHD_INFO(("%02x ", ((u8*)PKTDATA(dhd->osh, pktbuf))[i]));
+    }
+    DHD_INFO(("\n"));
+
 
 	PKTSETPRIO(pktbuf, (h->priority & BDC_PRIORITY_MASK));
 	data_offset = h->dataOffset;

@@ -295,6 +295,9 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
     int ifidx;
 	int ret;
     uint mon, scansuppress;
+	char iovbuf[12]; /* Room for "tlv" + '\0' + parameter */
+    uint32 tlv;
+
 
     MON_TRACE("Enter.\n");
 
@@ -306,11 +309,17 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
         MON_PRINT("======= Monitor Mode Begin ===========\n");
         scansuppress = htol32(TRUE);
         netif_stop_queue(mon_if->real_ndev);
+        tlv = WLFC_FLAGS_RSSI_SIGNALS | 
+            WLFC_FLAGS_XONXOFF_SIGNALS | 
+            WLFC_FLAGS_CREDIT_STATUS_SIGNALS | 
+            WLFC_FLAGS_HOST_PROPTXSTATUS_ACTIVE | 
+            WLFC_FLAGS_HOST_RXRERODER_ACTIVE;
     }
     else if (mon_if->started && !ltoh32(mon)) {
         MON_PRINT("======= Monitor Mode End   ===========\n");
         scansuppress = htol32(FALSE);
         netif_wake_queue(mon_if->real_ndev);
+        tlv = 0;
     }
     mon_if->started = ltoh32(mon);
 
@@ -324,6 +333,12 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
 	if (unlikely(ret < 0)) {
         MON_PRINT("Set scansuppress (%d) failed.\n", ltoh32(scansuppress));
     }
+
+	bcm_mkiovar("tlv", (char *)&tlv, 4, iovbuf, sizeof(iovbuf));
+	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+    if (unlikely(ret < 0)) {
+		MON_PRINT("Failed to enable/disable bdcv2 tlv signaling\n");
+	}
 }
 
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
