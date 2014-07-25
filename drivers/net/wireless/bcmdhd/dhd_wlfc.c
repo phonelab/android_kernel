@@ -1971,6 +1971,7 @@ dhd_wlfc_rssi_indicate(dhd_pub_t *dhd, uint8* rssi)
 {
 	(void)dhd;
 	(void)rssi;
+    DHD_INFO(("RSSI: 0x%02x (%d)\n", *rssi, (int8)*rssi));
 	return BCME_OK;
 }
 
@@ -2181,6 +2182,8 @@ dhd_wlfc_parse_header_info(dhd_pub_t *dhd, void* pktbuf, int tlv_hdr_len, uchar 
 {
 	uint8 type, len;
 	uint8* value;
+    int i;
+    uint8 rssi = 0;
 	uint8* tmpbuf;
 	uint16 remainder = tlv_hdr_len;
 	uint16 processed = 0;
@@ -2188,7 +2191,12 @@ dhd_wlfc_parse_header_info(dhd_pub_t *dhd, void* pktbuf, int tlv_hdr_len, uchar 
 		dhd->wlfc_state;
 	tmpbuf = (uint8*)PKTDATA(dhd->osh, pktbuf);
 
-    DHD_TRACE(("%s: Enter.\n", __FUNCTION__));
+    DHD_TRACE(("%s: Enter. hdr_len = %d\n", __FUNCTION__, tlv_hdr_len));
+    for (i = 0; i < tlv_hdr_len; i++) {
+        DHD_INFO(("%02x ", tmpbuf[i]));
+    }
+    DHD_INFO(("\n"));
+
 	if (remainder) {
 		while ((processed < (WLFC_MAX_PENDING_DATALEN * 2)) && (remainder > 0)) {
 			type = tmpbuf[processed];
@@ -2217,8 +2225,10 @@ dhd_wlfc_parse_header_info(dhd_pub_t *dhd, void* pktbuf, int tlv_hdr_len, uchar 
 			else if (type == WLFC_CTL_TYPE_FIFO_CREDITBACK)
 				dhd_wlfc_fifocreditback_indicate(dhd, value);
 
-			else if (type == WLFC_CTL_TYPE_RSSI)
+			else if (type == WLFC_CTL_TYPE_RSSI) {
 				dhd_wlfc_rssi_indicate(dhd, value);
+                rssi = *value;
+            }
 
 			else if (type == WLFC_CTL_TYPE_MAC_REQUEST_CREDIT)
 				dhd_wlfc_credit_request(dhd, value);
@@ -2247,6 +2257,8 @@ dhd_wlfc_parse_header_info(dhd_pub_t *dhd, void* pktbuf, int tlv_hdr_len, uchar 
 			wlfc->stats.tlv_parse_failed++;
 		}
 	}
+    /* piggyback rssi in the byte before real packet */
+    tmpbuf[tlv_hdr_len-1] = rssi;
 	return BCME_OK;
 }
 
@@ -2292,6 +2304,8 @@ dhd_wlfc_enable(dhd_pub_t *dhd)
 {
 	int i;
 	athost_wl_status_info_t* wlfc;
+
+    DHD_TRACE(("%s: Enter.\n", __FUNCTION__));
 
 	if (!dhd->wlfc_enabled || dhd->wlfc_state)
 		return BCME_OK;

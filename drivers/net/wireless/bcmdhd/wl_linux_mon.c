@@ -42,6 +42,12 @@
 #include <dngl_stats.h>
 #include <dhd.h>
 
+#ifdef PROP_TXSTATUS
+#include <wlfc_proto.h>
+#include <dhd_wlfc.h>
+#endif /* PROP_TXSTATUS */
+
+
 typedef enum monitor_states
 {
 	MONITOR_STATE_DEINIT = 0x0,
@@ -295,14 +301,6 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
     ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
 
 	mon = htol32((mon_if->mon_ndev->flags & IFF_PROMISC) ? TRUE : FALSE);
-    MON_PRINT("IFF_PROMISC = %d\n", mon);
-
-
-	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_MONITOR, &mon, sizeof(mon), TRUE, ifidx);
-	if (ret < 0) {
-		MON_PRINT("Set monitor mode (%d) failed\n", ltoh32(mon));
-        return;
-	}
 
     if (!mon_if->started && ltoh32(mon)) {
         MON_PRINT("======= Monitor Mode Begin ===========\n");
@@ -316,8 +314,14 @@ static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
     }
     mon_if->started = ltoh32(mon);
 
+	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_MONITOR, &mon, sizeof(mon), TRUE, ifidx);
+	if (unlikely(ret < 0)) {
+		MON_PRINT("Set monitor mode (%d) failed\n", ltoh32(mon));
+        return;
+	}
+
     ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_SCANSUPPRESS, &scansuppress, sizeof(scansuppress), TRUE, ifidx);
-    if (ret < 0) {
+	if (unlikely(ret < 0)) {
         MON_PRINT("Set scansuppress (%d) failed.\n", ltoh32(scansuppress));
     }
 }
@@ -582,7 +586,13 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
     hdr.channel_mhz = mon_if->freq;
     hdr.channel_flags = (hdr.channel_mhz < 5000? IEEE80211_CHAN_2GHZ: IEEE80211_CHAN_5GHZ);
 
-    hdr.rssi = -60;
+#ifdef PROP_TXSTATUS
+    hdr.rssi = *(s8*)(_skb->data-1) ;
+#else /* PROP_TXSTATUS */
+    hdr.rssi = 0;
+#endif /* PROP_TXSTATUS */
+
+    MON_PRINT("Packet RSSI = %d\n", hdr.rssi);
 
     skb_push(skb, sizeof(hdr));
     memcpy(skb->data, &hdr, sizeof(hdr));
