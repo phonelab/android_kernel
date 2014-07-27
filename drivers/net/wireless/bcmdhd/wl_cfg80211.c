@@ -75,7 +75,12 @@
 
 static struct device *cfg80211_parent_dev = NULL;
 struct wl_priv *wlcfg_drv_priv = NULL;
+
+#ifdef POCKETSNIFFER_DEBUG
 u32 wl_dbg_level = ~(u32)0;
+#else
+u32 wl_dbg_level = WL_DBG_ERR;
+#endif /* POCKETSNIFFER_DEBUG */
 
 #define MAX_WAIT_TIME 1500
 

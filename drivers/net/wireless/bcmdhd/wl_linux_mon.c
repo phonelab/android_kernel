@@ -102,7 +102,7 @@ typedef struct dhd_monitor_header {
     __le16 channel_mhz;
     __le16 channel_flags;
 
-    /* RSI in dBm */
+    /* RSSI in dBm */
     s8 rssi;
     s8 padding_for_rssi;
 } __attribute__ ((packed)) dhd_monitor_header_t;

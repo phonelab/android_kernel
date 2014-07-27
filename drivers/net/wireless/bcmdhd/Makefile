@@ -57,6 +57,9 @@ DHDCFLAGS += -DCUSTOM_TDLS_RSSI_THRESHOLD_HIGH=-60
 DHDCFLAGS += -DCUSTOM_TDLS_RSSI_THRESHOLD_LOW=-70
 DHDCFLAGS += -DCUSTOM_TDLS_IDLE_MODE_SETTING=40000
 
+# verbose debug for pocketsniffer projct, need to be removed before release
+DHDCFLAGS += -DPOCKETSNIFFER_DEBUG
+
 #########################
 # Chip dependent feature
 #########################
