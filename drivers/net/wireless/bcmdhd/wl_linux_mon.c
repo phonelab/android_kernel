@@ -621,6 +621,10 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
 
 int dhd_monitor_init(void *dhd_pub)
 {
+    struct net_device* first_ndev = NULL;
+    struct net_device* mon_ndev = NULL;
+    char mon_name[128];
+
     if (g_monitor.monitor_state == MONITOR_STATE_DEINIT) {
         g_monitor.dhd_pub = dhd_pub;
         mutex_init(&g_monitor.lock);
@@ -629,6 +633,13 @@ int dhd_monitor_init(void *dhd_pub)
     MON_PRINT("dhd_pub: %p, monitor_state: %d\n", dhd_pub, g_monitor.monitor_state);
 
     PROC_START(_dhd_mon_sysioc_thread, &g_monitor, &g_monitor.thr_sysioc_ctl, 0, "dhd_mon_sysioc");
+
+    first_ndev = dhd_idx2net(dhd_pub, 0);
+
+    if (first_ndev != NULL) {
+        sprintf(mon_name, "mon.%s", first_ndev->name);
+        dhd_add_monitor(mon_name, &ndev);
+    }
     return 0;
 }
 
