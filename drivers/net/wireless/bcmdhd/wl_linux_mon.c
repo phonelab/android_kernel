@@ -638,7 +638,7 @@ int dhd_monitor_init(void *dhd_pub)
 
     if (first_ndev != NULL) {
         sprintf(mon_name, "mon.%s", first_ndev->name);
-        dhd_add_monitor(mon_name, &ndev);
+        dhd_add_monitor(mon_name, &mon_ndev);
     }
     return 0;
 }
