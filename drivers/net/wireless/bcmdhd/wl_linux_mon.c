@@ -126,6 +126,7 @@ static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr);
 static int _dhd_mon_sysioc_thread(void* data);
 static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if);
 static int get_freq(monitor_interface_t* mon_if);
+static int set_tlv(uint32 tlv);
 
 static const struct net_device_ops dhd_mon_if_ops = {
 	.ndo_open		= dhd_mon_if_open,
@@ -290,55 +291,68 @@ fail:
     return 0;
 }
 
+static int set_tlv(uint32 tlv)
+{
+    char iovbuf[12]; /* Room for "tlv" + '\0' + parameter */
+    int ret;
+
+    bcm_mkiovar("tlv", (char *)&tlv, sizeof(tlv), iovbuf, sizeof(iovbuf));
+    ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
+    if (unlikely(ret < 0)) {
+        MON_PRINT("Failed to enable/disable bdcv2 tlv signaling: %s\n", bcmerrorstr(ret));
+    }
+
+    return ret;
+}
+
 static void _dhd_mon_if_set_multicast_list(monitor_interface_t* mon_if)
 {
     int ifidx;
-	int ret;
-    uint mon, scansuppress;
-	char iovbuf[12]; /* Room for "tlv" + '\0' + parameter */
-    uint32 tlv;
+    int ret;
+    uint32 tlv = -1;
+    uint32 scansuppress = -1;
+    uint32 mon;
 
 
     MON_TRACE("Enter.\n");
 
     ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
 
-	mon = htol32((mon_if->mon_ndev->flags & IFF_PROMISC) ? TRUE : FALSE);
+    mon = (mon_if->mon_ndev->flags & IFF_PROMISC) ? TRUE : FALSE;
 
-    if (!mon_if->started && ltoh32(mon)) {
+    if (!mon_if->started && mon) {
         MON_PRINT("======= Monitor Mode Begin ===========\n");
-        scansuppress = htol32(TRUE);
+        scansuppress = TRUE;
         netif_stop_queue(mon_if->real_ndev);
-        tlv = WLFC_FLAGS_RSSI_SIGNALS | 
-            WLFC_FLAGS_XONXOFF_SIGNALS | 
-            WLFC_FLAGS_CREDIT_STATUS_SIGNALS | 
-            WLFC_FLAGS_HOST_PROPTXSTATUS_ACTIVE | 
-            WLFC_FLAGS_HOST_RXRERODER_ACTIVE;
+        tlv = WLFC_FLAGS_RSSI_SIGNALS;
     }
-    else if (mon_if->started && !ltoh32(mon)) {
+    else if (mon_if->started && !mon) {
         MON_PRINT("======= Monitor Mode End   ===========\n");
         scansuppress = htol32(FALSE);
         netif_wake_queue(mon_if->real_ndev);
         tlv = 0;
     }
+
+    if (mon_if->started != mon) {
+        mon = htol32(mon);
+        ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_MONITOR, &mon, sizeof(mon), TRUE, ifidx);
+        if (unlikely(ret < 0)) {
+            MON_PRINT("Set monitor mode (%d) failed: %s\n", ltoh32(mon), bcmerrorstr(ret));
+        }
+    }
     mon_if->started = ltoh32(mon);
 
-	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_MONITOR, &mon, sizeof(mon), TRUE, ifidx);
-	if (unlikely(ret < 0)) {
-		MON_PRINT("Set monitor mode (%d) failed\n", ltoh32(mon));
-        return;
-	}
-
-    ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_SCANSUPPRESS, &scansuppress, sizeof(scansuppress), TRUE, ifidx);
-	if (unlikely(ret < 0)) {
-        MON_PRINT("Set scansuppress (%d) failed.\n", ltoh32(scansuppress));
+    if (scansuppress != -1) {
+        scansuppress = htol32(scansuppress);
+        ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_SCANSUPPRESS, &scansuppress, sizeof(scansuppress), TRUE, ifidx);
+        if (unlikely(ret < 0)) {
+            MON_PRINT("Set scansuppress (%d) failed: %s\n", ltoh32(scansuppress), bcmerrorstr(ret));
+        }
     }
 
-	bcm_mkiovar("tlv", (char *)&tlv, 4, iovbuf, sizeof(iovbuf));
-	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_SET_VAR, iovbuf, sizeof(iovbuf), TRUE, 0);
-    if (unlikely(ret < 0)) {
-		MON_PRINT("Failed to enable/disable bdcv2 tlv signaling\n");
-	}
+    if (tlv != -1) {
+        set_tlv(tlv);
+    }
 }
 
 static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
@@ -356,7 +370,7 @@ static void dhd_mon_if_set_multicast_list(struct net_device *ndev)
 
     mon_if->set_multicast = TRUE;
 
-	ASSERT(g_monitor.thr_sysioc_ctl.thr_pid >= 0);
+    ASSERT(g_monitor.thr_sysioc_ctl.thr_pid >= 0);
     up(&(g_monitor.thr_sysioc_ctl.sema));
 }
 
@@ -377,8 +391,8 @@ static int dhd_mon_if_change_mac(struct net_device *ndev, void *addr)
 
 static int _dhd_mon_sysioc_thread(void* data)
 {
-	tsk_ctl_t *tsk = (tsk_ctl_t *)data;
-	int i;
+    tsk_ctl_t *tsk = (tsk_ctl_t *)data;
+    int i;
     monitor_interface_t* mon_if;
 
     MON_TRACE("Started.\n");
@@ -409,28 +423,28 @@ static int _dhd_mon_sysioc_thread(void* data)
 
     }
 
-	MON_TRACE("Stopped\n");
-	complete_and_exit(&tsk->completed, 0);
+    MON_TRACE("Stopped\n");
+    complete_and_exit(&tsk->completed, 0);
 }
 
 
 static int get_freq(monitor_interface_t* mon_if)
 {
-	channel_info_t chan_info;
+    channel_info_t chan_info;
     enum ieee80211_band band;
     int ret, chan, freq, ifidx;
 
     ifidx = dhd_net2idx(g_monitor.dhd_pub, mon_if->real_ndev);
-	ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_GET_CHANNEL, &chan_info, sizeof(chan_info), FALSE, ifidx);
+    ret = dhd_wl_ioctl_cmd(g_monitor.dhd_pub, WLC_GET_CHANNEL, &chan_info, sizeof(chan_info), FALSE, ifidx);
 
     if (unlikely(ret)) {
         MON_PRINT("Failed to get channel info.\n");
         return -1;
     }
 
-	chan = ltoh32(chan_info.hw_channel);
+    chan = ltoh32(chan_info.hw_channel);
     band = (chan <= CH_MAX_2G_CHANNEL) ? IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ;
-	freq = ieee80211_channel_to_frequency(chan, band);
+    freq = ieee80211_channel_to_frequency(chan, band);
 
     MON_PRINT("chan = %d, band = %d, freq = %d\n", chan, band, freq);
 
@@ -448,6 +462,7 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
     int ret = 0;
     struct net_device* ndev = NULL;
     dhd_linux_monitor_t **dhd_mon;
+    bool rtnl_locked = true;
 
     mutex_lock(&g_monitor.lock);
 
@@ -488,7 +503,17 @@ int dhd_add_monitor(char *name, struct net_device **new_ndev)
     ndev->name[IFNAMSIZ - 1] = 0;
     ndev->netdev_ops = &dhd_mon_if_ops;
 
+    if (!rtnl_is_locked()) {
+        rtnl_lock();
+        rtnl_locked = false;
+    }
+
     ret = register_netdevice(ndev);
+
+    if (!rtnl_locked) {
+        rtnl_unlock();
+    }
+
     if (ret) {
         MON_PRINT(" register_netdevice failed (%d)\n", ret);
         goto out;
@@ -629,17 +654,19 @@ int dhd_monitor_init(void *dhd_pub)
         g_monitor.dhd_pub = dhd_pub;
         mutex_init(&g_monitor.lock);
         g_monitor.monitor_state = MONITOR_STATE_INIT;
+
+        PROC_START(_dhd_mon_sysioc_thread, &g_monitor, &g_monitor.thr_sysioc_ctl, 0, "dhd_mon_sysioc");
+
+        first_ndev = dhd_idx2net(dhd_pub, 0);
+
+        if (first_ndev != NULL) {
+            sprintf(mon_name, "mon.%s", first_ndev->name);
+            dhd_add_monitor(mon_name, &mon_ndev);
+        }
+
     }
     MON_PRINT("dhd_pub: %p, monitor_state: %d\n", dhd_pub, g_monitor.monitor_state);
 
-    PROC_START(_dhd_mon_sysioc_thread, &g_monitor, &g_monitor.thr_sysioc_ctl, 0, "dhd_mon_sysioc");
-
-    first_ndev = dhd_idx2net(dhd_pub, 0);
-
-    if (first_ndev != NULL) {
-        sprintf(mon_name, "mon.%s", first_ndev->name);
-        dhd_add_monitor(mon_name, &mon_ndev);
-    }
     return 0;
 }
 
