@@ -632,7 +632,7 @@ int monitor_rx_frame(struct net_device* ndev, struct sk_buff* _skb, uint8 chan)
     hdr.rssi = 0;
 #endif /* PROP_TXSTATUS */
 
-    MON_PRINT("Packet RSSI = %d\n", hdr.rssi);
+    // MON_PRINT("Packet RSSI = %d\n", hdr.rssi);
 
     skb_push(skb, sizeof(hdr));
     memcpy(skb->data, &hdr, sizeof(hdr));
