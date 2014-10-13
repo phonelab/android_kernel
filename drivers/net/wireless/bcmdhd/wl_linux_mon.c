@@ -408,7 +408,9 @@ static int _dhd_mon_sysioc_thread(void* data)
                 continue;
             }
             mon_if = &(g_monitor.mon_if[i]);
+#ifdef POCKETSNIFFER_DEBUG
             MON_PRINT("%s\n", mon_if->mon_ndev->name);
+#endif
 
             if (mon_if->set_multicast) {
                 _dhd_mon_if_set_multicast_list(mon_if);
@@ -417,7 +419,9 @@ static int _dhd_mon_sysioc_thread(void* data)
             if (mon_if->update_freq) {
                 mon_if->freq = get_freq(mon_if);
                 mon_if->update_freq = FALSE;
+#ifdef POCKETSNIFFER_DEBUG
                 MON_PRINT("Current freq: %d\n", mon_if->freq);
+#endif
             }
         }
 
@@ -446,7 +450,9 @@ static int get_freq(monitor_interface_t* mon_if)
     band = (chan <= CH_MAX_2G_CHANNEL) ? IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ;
     freq = ieee80211_channel_to_frequency(chan, band);
 
+#ifdef POCKETSNIFFER_DEBUG
     MON_PRINT("chan = %d, band = %d, freq = %d\n", chan, band, freq);
+#endif
 
     return freq;
 }
